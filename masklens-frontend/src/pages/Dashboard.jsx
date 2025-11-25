@@ -10,6 +10,8 @@ const Dashboard = () => {
   const [capturedImage, setCapturedImage] = useState(null);
   const [predictedEmotion, setPredictedEmotion] = useState(null);
   const [maskStatus, setMaskStatus] = useState(null);
+  const [facesDetected, setFacesDetected] = useState(1);
+  const [annotatedImage, setAnnotatedImage] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
   const [showWeeklySummary, setShowWeeklySummary] = useState(false);
   const [emotionHistory, setEmotionHistory] = useState([]);
@@ -181,6 +183,8 @@ const Dashboard = () => {
     setCapturedImage(photo);
     setPredictedEmotion("Analyzing...");
     setMaskStatus(null);
+    setFacesDetected(1);
+    setAnnotatedImage(null);
 
     // Get JWT token
     const token = localStorage.getItem("access_token");
@@ -235,8 +239,16 @@ const Dashboard = () => {
         if (data.emotion) {
           setPredictedEmotion(data.emotion);
           setMaskStatus(data.mask_status);
+          setFacesDetected(data.faces_detected || 1);
+          
+          // If multiple faces detected and annotated image provided
+          if (data.annotated_image) {
+            setAnnotatedImage(data.annotated_image);
+          }
+          
           console.log("Prediction set to:", data.emotion);
           console.log("Mask status:", data.mask_status);
+          console.log("Faces detected:", data.faces_detected);
         } else if (data.prediction) {
           // Fallback for old format
           setPredictedEmotion(data.prediction);
@@ -462,6 +474,16 @@ const Dashboard = () => {
           {capturedImage && (
             <div style={styles.imagePreview}>
               <div style={styles.predictionResult}>
+                {/* Multiple Faces Warning */}
+                {facesDetected > 1 && (
+                  <div style={styles.multipleFacesWarning}>
+                    <span style={styles.warningIcon}>👥</span>
+                    <span style={styles.warningText}>
+                      {facesDetected} faces detected - analyzing the largest face (shown in green box)
+                    </span>
+                  </div>
+                )}
+                
                 {/* Mask Status */}
                 {maskStatus && (
                   <div style={styles.maskStatusContainer}>
@@ -495,7 +517,7 @@ const Dashboard = () => {
                 )} */}
               </div>
               <img
-                src={capturedImage}
+                src={annotatedImage || capturedImage}
                 alt="Captured"
                 style={styles.capturedImage}
               />
@@ -754,6 +776,24 @@ const styles = {
     fontSize: "1rem",
     fontWeight: "600",
     boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
+  },
+  multipleFacesWarning: {
+    backgroundColor: "#fff3cd",
+    border: "1px solid #ffc107",
+    borderRadius: "8px",
+    padding: "12px 16px",
+    marginBottom: "15px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  },
+  warningIcon: {
+    fontSize: "1.5rem",
+  },
+  warningText: {
+    color: "#856404",
+    fontSize: "0.95rem",
+    fontWeight: "500",
   },
   modelInfo: {
     marginTop: "15px",

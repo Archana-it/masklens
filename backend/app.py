@@ -47,7 +47,8 @@ print(f"Database path: {DB_PATH}")
 print(f"Upload folder: {UPLOAD_FOLDER}")
 
 # ====== Model Configuration ======
-INVERT_MASK_PREDICTION = False  # Model outputs high value for MASK
+# Based on tested code: mask_pred < 0.5 = MASK, mask_pred >= 0.5 = NO MASK
+INVERT_MASK_PREDICTION = True  # Model outputs high value for NO MASK, low value for MASK
 
 # ====== Password Validation ======
 import re
@@ -201,7 +202,7 @@ except Exception as e:
 def predict_emotion_from_path(image_path):
     img = cv2.imread(image_path)
     if img is None:
-        return None, "Image read error"
+        return None, "Image read error", None
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -249,17 +250,18 @@ def predict_emotion_from_path(image_path):
         print("   - Good lighting conditions")
         print("   - Face the camera directly")
         print("   - Remove any obstructions")
-        return None, "No face detected. Please ensure your face is clearly visible and well-lit."
+        return None, "No face detected. Please ensure your face is clearly visible and well-lit.", None
     
     # Face detected - extract it
     print(f"✅ Face detected: {len(faces)} face(s)")
     faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
     (x, y, w, h) = faces[0]
+    
     face = img[y:y+h, x:x+w]
     
     if face.size == 0:
         print("❌ ERROR: Invalid face region")
-        return None, "Invalid face region"
+        return None, "Invalid face region", None
 
     # Mask Detection
     try:
@@ -303,15 +305,37 @@ def predict_emotion_from_path(image_path):
         
         print(f"Emotion: {emotion_label} ({confidence:.2f})")
 
+        # Draw bounding box around detected face (always for visualization)
+        annotated_image = None
+        print(f"Drawing bounding box around detected face")
+        img_copy = img.copy()
+        # Draw green rectangle around the selected face
+        cv2.rectangle(img_copy, (x, y), (x+w, y+h), (0, 255, 0), 3)
+        
+        # Add label based on multiple faces or not
+        if len(faces) > 1:
+            label_text = f"Selected Face ({len(faces)} detected)"
+        else:
+            label_text = "Detected Face"
+        
+        cv2.putText(img_copy, label_text, (x, y-10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Save annotated image
+        annotated_path = image_path.replace('.', '_annotated.')
+        cv2.imwrite(annotated_path, img_copy)
+        annotated_image = annotated_path
+
         return {
             "mask_status": mask_status,
             "emotion": emotion_label,
-            "confidence": float(confidence)
-        }, None
+            "confidence": float(confidence),
+            "faces_detected": len(faces)
+        }, None, annotated_image
         
     except Exception as e:
         print(f"Prediction error: {str(e)}")
-        return None, f"Prediction error: {str(e)}"
+        return None, f"Prediction error: {str(e)}", None
 
 # ====== Auth routes ======
 @app.route("/register", methods=["POST"])
@@ -400,18 +424,28 @@ def predict():
         if mask_model is None or emotion_regular is None or emotion_masked is None:
             return jsonify({"error": "Models not loaded"}), 500
             
-        result, error = predict_emotion_from_path(file_path)
+        result, error, annotated_image = predict_emotion_from_path(file_path)
         if error:
             return jsonify({"error": error}), 400
         
         user_id = int(get_jwt_identity())
         save_emotion(user_id, file.filename, result["emotion"])
 
-        return jsonify({
+        response_data = {
             "prediction": result["emotion"],
             "mask_status": result["mask_status"],
-            "emotion": result["emotion"]
-        }), 200
+            "emotion": result["emotion"],
+            "faces_detected": result.get("faces_detected", 1)
+        }
+        
+        # If multiple faces detected, return annotated image
+        if annotated_image:
+            import base64
+            with open(annotated_image, 'rb') as img_file:
+                img_data = base64.b64encode(img_file.read()).decode('utf-8')
+                response_data["annotated_image"] = f"data:image/png;base64,{img_data}"
+
+        return jsonify(response_data), 200
     
     except Exception as e:
         print(f"Prediction error: {str(e)}")
