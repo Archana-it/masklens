@@ -12,22 +12,6 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required, get_jwt_identity
 )
 
-# ====== Admin-only decorator ======
-def admin_required(fn):
-    @jwt_required()
-    def wrapper(*args, **kwargs):
-        identity = get_jwt_identity()
-        # Check if JWT identity has a role
-        if isinstance(identity, dict):
-            role = identity.get("role", "user")
-        else:
-            role = "user"
-        if role != "admin":
-            return jsonify({"error": "Admin access only"}), 403
-        return fn(*args, **kwargs)
-    wrapper.__name__ = fn.__name__  # Required for Flask routes
-    return wrapper
-
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
@@ -53,13 +37,50 @@ def missing_token_callback(error):
     return jsonify({"error": "Authorization token is missing", "msg": str(error)}), 401
 
 # ====== Paths & DB ======
-DB_PATH = "database.db"
-UPLOAD_FOLDER = "uploads"
+# Use absolute paths to avoid duplicate files
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "database.db")
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+print(f"Database path: {DB_PATH}")
+print(f"Upload folder: {UPLOAD_FOLDER}")
+
 # ====== Model Configuration ======
-# If mask detection is inverted, change this to True
-INVERT_MASK_PREDICTION = False  # Set to True if mask detection is backwards
+INVERT_MASK_PREDICTION = False  # Model outputs high value for MASK
+
+# ====== Password Validation ======
+import re
+
+def validate_password(password):
+    """
+    Validate password requirements:
+    - Minimum 8 characters
+    - Maximum 16 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one number
+    - At least one special character
+    """
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    
+    if len(password) > 16:
+        return False, "Password must not exceed 16 characters"
+    
+    if not re.search(r"[A-Z]", password):
+        return False, "Password must contain at least one uppercase letter"
+    
+    if not re.search(r"[a-z]", password):
+        return False, "Password must contain at least one lowercase letter"
+    
+    if not re.search(r"\d", password):
+        return False, "Password must contain at least one number"
+    
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return False, "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
+    
+    return True, "Password is valid"
 
 # ====== Initialize DB (users + emotions) ======
 def init_db():
@@ -153,12 +174,7 @@ def find_user_by_email(email):
 
 # ====== Existing prediction code (unchanged behavior) ======
 try:
-    # =======================
-# LOAD MODELS (NEW LOGIC)
-# =======================
-
     print("Loading mask + emotion models...")
-
     mask_model = load_model("mask_detection_model.h5")
     emotion_regular = load_model("emotion_model_regular.h5")
     emotion_masked = load_model("emotion_model_masked.h5")
@@ -166,198 +182,95 @@ try:
     regular_labels = ["Happy", "Sad"]
     masked_labels  = ["Happy", "Sad"]
 
-    # Load multiple face detection cascades for better mask detection
     face_cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
     )
     
-    # Alternative cascade that might work better with masks
-    try:
-        face_cascade_alt = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_alt.xml"
-        )
-        print("Alternative face cascade loaded")
-    except:
-        face_cascade_alt = None
-        print("Alternative face cascade not available")
+    face_cascade_alt = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_alt.xml"
+    )
 
     print("Models and face cascade loaded successfully!")
-
-    # print("Loading emotion model...")
-    # # Try the regular model first
-    # model = load_model("emotion_model_regular.h5")
-    # print("Regular model loaded successfully!")
-    # print("Model input shape:", model.input_shape)
-    # print("Model summary:")
-    # model.summary()
-    # class_names = ["Happy", "Sad"]
     
 except Exception as e:
     print(f"ERROR loading model: {e}")
-    # try:                                                 i changed here! Load Models
-    #     print("Trying masked model...")
-    #     model = load_model("emotion_model_masked.h5")
-    #     print("Masked model loaded successfully!")
-    #     print("Model input shape:", model.input_shape)
-    #     print("Model summary:")
-    #     model.summary()
-    #     class_names = ["Happy", "Sad"]
-    # except Exception as e2:
-    #     print(f"ERROR loading masked model: {e2}")
-    #     model = None
-
-# face_cascade = cv2.CascadeClassifier(
-#     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-# )
-# print(f"Face cascade loaded: {not face_cascade.empty()}")
-
-# def predict_emotion_from_path(image_path):                         Function changes
-#     img = cv2.imread(image_path)
-#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-#     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-#     if len(faces) == 0:
-#         return None
-
-#     x, y, w, h = faces[0]
-#     face = gray[y:y+h, x:x+w]
-    
-#     # Try different preprocessing approaches
-#     try:
-#         # Method 1: 48x48 with channel dimension
-#         face_48 = cv2.resize(face, (48, 48))
-#         face_48 = face_48.astype("float32") / 255.0
-#         face_48 = np.expand_dims(face_48, axis=0)
-#         face_48 = np.expand_dims(face_48, axis=-1)
-        
-#         pred = model.predict(face_48)
-#         emotion = class_names[int(np.argmax(pred))]
-#         return emotion
-        
-#     except Exception as e1:
-#         print(f"Method 1 failed: {e1}")
-#         try:
-#             # Method 2: Flattened 48x48
-#             face_flat = cv2.resize(face, (48, 48))
-#             face_flat = face_flat.astype("float32") / 255.0
-#             face_flat = face_flat.flatten()
-#             face_flat = np.expand_dims(face_flat, axis=0)
-            
-#             pred = model.predict(face_flat)
-#             emotion = class_names[int(np.argmax(pred))]
-#             return emotion
-            
-#         except Exception as e2:
-#             print(f"Method 2 failed: {e2}")
-#             try:
-#                 # Method 3: Different size (224x224 flattened = 50176, close to 25088)
-#                 face_224 = cv2.resize(face, (158, 158))  # 158*158 = 24964 ≈ 25088
-#                 face_224 = face_224.astype("float32") / 255.0
-#                 face_224 = face_224.flatten()
-#                 face_224 = np.expand_dims(face_224, axis=0)
-                
-#                 pred = model.predict(face_224)
-#                 emotion = class_names[int(np.argmax(pred))]
-#                 return emotion
-                
-#             except Exception as e3:
-#                 print(f"Method 3 failed: {e3}")
-#                 print("All preprocessing methods failed")
-#                 return None
+    mask_model = None
+    emotion_regular = None
+    emotion_masked = None
 
 def predict_emotion_from_path(image_path):
     img = cv2.imread(image_path)
     if img is None:
         return None, "Image read error"
 
-    orig = img.copy()
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Try multiple face detection strategies for better mask detection
+    # Enhanced face detection - multiple strategies
+    # Note: More conservative to avoid false positives (like detecting paper as face)
     faces = []
     
-    # Strategy 1: Standard parameters
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-    print(f"Strategy 1: Found {len(faces)} faces")
+    # Strategy 1: Standard detection (good balance)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+    print(f"Strategy 1 (Standard): Found {len(faces)} faces")
     
-    # Strategy 2: More sensitive parameters for masked faces
+    # Strategy 2: Moderate sensitivity (for masked faces)
     if len(faces) == 0:
-        faces = face_cascade.detectMultiScale(gray, 1.1, 3, minSize=(30, 30))
-        print(f"Strategy 2: Found {len(faces)} faces")
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(35, 35))
+        print(f"Strategy 2 (Moderate): Found {len(faces)} faces")
     
-    # Strategy 3: Even more lenient parameters
+    # Strategy 3: More aggressive (for difficult lighting)
     if len(faces) == 0:
-        faces = face_cascade.detectMultiScale(gray, 1.05, 2, minSize=(20, 20))
-        print(f"Strategy 3: Found {len(faces)} faces")
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
+        print(f"Strategy 3 (Aggressive): Found {len(faces)} faces")
     
-    # Strategy 4: Try with histogram equalization (better for poor lighting)
+    # Strategy 4: With histogram equalization (for poor lighting)
     if len(faces) == 0:
         equalized = cv2.equalizeHist(gray)
-        faces = face_cascade.detectMultiScale(equalized, 1.2, 4, minSize=(30, 30))
-        print(f"Strategy 4 (equalized): Found {len(faces)} faces")
+        faces = face_cascade.detectMultiScale(equalized, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+        print(f"Strategy 4 (Equalized): Found {len(faces)} faces")
     
-    # Strategy 5: Try with different scale factors
+    # Strategy 5: Alternative cascade (different detection algorithm)
     if len(faces) == 0:
-        faces = face_cascade.detectMultiScale(gray, 1.4, 3, minSize=(25, 25), maxSize=(300, 300))
-        print(f"Strategy 5: Found {len(faces)} faces")
+        faces = face_cascade_alt.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+        print(f"Strategy 5 (Alt Cascade): Found {len(faces)} faces")
     
-    # Strategy 6: Try alternative cascade if available
-    if len(faces) == 0 and face_cascade_alt is not None:
-        faces = face_cascade_alt.detectMultiScale(gray, 1.2, 4, minSize=(30, 30))
-        print(f"Strategy 6 (alt cascade): Found {len(faces)} faces")
-    
-    # Strategy 7: Very aggressive detection for masks
+    # Strategy 6: CLAHE enhancement (for contrast issues)
     if len(faces) == 0:
-        faces = face_cascade.detectMultiScale(gray, 1.02, 1, minSize=(15, 15), maxSize=(500, 500))
-        print(f"Strategy 7 (aggressive): Found {len(faces)} faces")
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(gray)
+        faces = face_cascade.detectMultiScale(enhanced, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+        print(f"Strategy 6 (CLAHE): Found {len(faces)} faces")
 
+    # NO FALLBACK: Return error if no face detected
     if len(faces) == 0:
-        print("Face detection failed with all strategies")
-        print("Using fallback: analyzing entire image")
-        # Fallback: use center portion of the image
-        h, w = img.shape[:2]
-        # Use center 70% of the image as face region
-        margin_h, margin_w = int(h * 0.15), int(w * 0.15)
-        face = img[margin_h:h-margin_h, margin_w:w-margin_w]
-        print(f"Fallback face region size: {face.shape}")
-    else:
-        print(f"Face detected with {len(faces)} face(s) found")
-        # Sort faces by area (largest first) to get the most prominent face
-        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        (x, y, w, h) = faces[0]  # Use the largest face
-        face = img[y:y+h, x:x+w]
-        
-        print(f"Face region: {x}, {y}, {w}, {h}")
-        print(f"Face size: {face.shape}")
+        print("❌ NO FACE DETECTED - All detection strategies failed")
+        print("   Please ensure:")
+        print("   - Your face is clearly visible")
+        print("   - Good lighting conditions")
+        print("   - Face the camera directly")
+        print("   - Remove any obstructions")
+        return None, "No face detected. Please ensure your face is clearly visible and well-lit."
     
-    # Ensure face region is valid
+    # Face detected - extract it
+    print(f"✅ Face detected: {len(faces)} face(s)")
+    faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+    (x, y, w, h) = faces[0]
+    face = img[y:y+h, x:x+w]
+    
     if face.size == 0:
-        return None, "Invalid face region detected"
+        print("❌ ERROR: Invalid face region")
+        return None, "Invalid face region"
 
-    # -------------------------
-    # 1. MASK PREDICTION (128x128x3)
-    # -------------------------
+    # Mask Detection
     try:
         mask_face = cv2.resize(face, (128, 128))
         mask_face = mask_face.astype("float32") / 255.0
         mask_face = np.expand_dims(mask_face, axis=0)
 
-        print(f"Mask prediction input shape: {mask_face.shape}")
-        mask_pred = mask_model.predict(mask_face)[0][0]
-        print(f"Mask prediction raw value: {mask_pred}")
+        mask_pred = mask_model.predict(mask_face, verbose=0)[0][0]
+        print(f"Mask prediction: {mask_pred:.4f}")
         
-        # Try both interpretations of the mask model
-        # Some models output 0 for mask, 1 for no mask
-        # Others output 1 for mask, 0 for no mask
-        
-        # Let's test both thresholds and see which makes more sense
-        interpretation_1 = "MASK" if mask_pred < 0.5 else "NO MASK"
-        interpretation_2 = "MASK" if mask_pred > 0.5 else "NO MASK"
-        
-        print(f"Interpretation 1 (< 0.5 = MASK): {interpretation_1}")
-        print(f"Interpretation 2 (> 0.5 = MASK): {interpretation_2}")
-        
-        # Apply mask detection logic (configurable in case model is inverted)
+        # INVERT_MASK_PREDICTION = True: high value = NO MASK, low value = MASK
         if INVERT_MASK_PREDICTION:
             mask_detected = mask_pred < 0.5
         else:
@@ -374,33 +287,30 @@ def predict_emotion_from_path(image_path):
             input_size = 48
             labels = regular_labels
 
-        print(f"Final detected mask status: {mask_status}")
-        print(f"Using model for: {mask_status}")
-        print(f"Selected input size: {input_size}")
+        print(f"Mask status: {mask_status}")
 
-        # -------------------------
-        # 2. EMOTION PREDICTION
-        # -------------------------
+        # Emotion Prediction
         emo_face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
         emo_face = cv2.resize(emo_face, (input_size, input_size))
         emo_face = emo_face.astype("float32") / 255.0
         emo_face = np.expand_dims(emo_face, axis=-1)
         emo_face = np.expand_dims(emo_face, axis=0)
 
-        print(f"Emotion prediction input shape: {emo_face.shape}")
-        emotion_pred = selected_model.predict(emo_face)
-        emotion_label = labels[np.argmax(emotion_pred)]
-        print(f"Emotion prediction: {emotion_label}")
+        emotion_pred = selected_model.predict(emo_face, verbose=0)
+        emotion_idx = np.argmax(emotion_pred[0])
+        emotion_label = labels[emotion_idx]
+        confidence = emotion_pred[0][emotion_idx]
+        
+        print(f"Emotion: {emotion_label} ({confidence:.2f})")
 
         return {
             "mask_status": mask_status,
-            "emotion": emotion_label
+            "emotion": emotion_label,
+            "confidence": float(confidence)
         }, None
         
     except Exception as e:
-        print(f"Error in prediction pipeline: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"Prediction error: {str(e)}")
         return None, f"Prediction error: {str(e)}"
 
 # ====== Auth routes ======
@@ -416,6 +326,11 @@ def register():
 
     if not fullname or not email or not password:
         return jsonify({"error": "fullname, email and password are required"}), 400
+
+    # Validate password
+    is_valid, message = validate_password(password)
+    if not is_valid:
+        return jsonify({"error": message}), 400
 
     # Check if user exists
     if find_user_by_email(email) is not None:
@@ -472,70 +387,34 @@ def login():
 
 # ====== Protected prediction endpoint ======
 @app.route("/predict", methods=["POST"])
-@jwt_required()  # require JWT for prediction
+@jwt_required()
 def predict():
-    """
-    Protected endpoint. Use Authorization: Bearer <access_token>
-    Body: multipart/form-data with `image` file
-    """
-    print("=== PREDICT ENDPOINT CALLED ===")
-    print(f"Request files: {request.files}")
-    print(f"Request form: {request.form}")
-    
     if "image" not in request.files:
-        print("ERROR: No image in request.files")
         return jsonify({"error": "No image uploaded"}), 400
 
     file = request.files["image"]
-    print(f"File received: {file.filename}, size: {file.content_length}")
-    
-    # sanitize filename if you want (not included here)
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(file_path)
-    print(f"File saved to: {file_path}")
 
     try:
-        # Check if models are loaded
         if mask_model is None or emotion_regular is None or emotion_masked is None:
-            print("ERROR: Models not loaded")
-            return jsonify({"error": "Models not loaded. Check server logs."}), 500
+            return jsonify({"error": "Models not loaded"}), 500
             
         result, error = predict_emotion_from_path(file_path)
         if error:
             return jsonify({"error": error}), 400
-         # Get user ID from JWT
+        
         user_id = int(get_jwt_identity())
-        print(f"User ID from JWT: {user_id}")
-
-        # Save emotion only (DB stores emotion only)
         save_emotion(user_id, file.filename, result["emotion"])
-        print(f"Emotion saved to database")
 
         return jsonify({
+            "prediction": result["emotion"],
             "mask_status": result["mask_status"],
             "emotion": result["emotion"]
         }), 200
-        #print(f"Emotion predicted: {emotion}")
-        
-        # if emotion is None:
-        #     print("ERROR: No face detected in image")
-        #     return jsonify({"error": "No face detected"}), 400
-
-        # get current user id from JWT (convert back to int)
-        # user_id = int(get_jwt_identity())
-        # print(f"User ID from JWT: {user_id}")
-
-        # save record linked to user
-        # save_emotion(user_id, file.filename, emotion)
-        # print(f"Emotion saved to database")
-
-        # print(f"Returning prediction: {emotion}")
-        # return jsonify({"prediction": emotion}), 200
     
     except Exception as e:
-        print(f"ERROR in prediction: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"Prediction error: {str(e)}")
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
 
 
@@ -631,27 +510,13 @@ def get_user_role(user_id):
     conn.close()
     return result[0] if result else None
 
-def admin_required(f):
-    @jwt_required()
-    def decorated_function(*args, **kwargs):
-        user_id = int(get_jwt_identity())
-        print(f"Admin check - User ID: {user_id}")
-        role = get_user_role(user_id)
-        print(f"Admin check - User role: {role}")
-        if role != 'admin':
-            print(f"Access denied - Role '{role}' is not 'admin'")
-            return jsonify({"error": "Admin access required"}), 403
-        print("Admin access granted")
-        return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
-    return decorated_function
-
 @app.route("/admin/dashboard", methods=["GET"])
-@admin_required
+@jwt_required()
 def admin_dashboard():
-    print("=== ADMIN DASHBOARD ENDPOINT CALLED ===")
     user_id = int(get_jwt_identity())
-    print(f"User ID from JWT: {user_id}")
+    role = get_user_role(user_id)
+    if role != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     
     conn = get_db_conn()
     conn.row_factory = sqlite3.Row
@@ -694,8 +559,11 @@ def admin_dashboard():
     })
 
 @app.route("/admin/users", methods=["GET"])
-@admin_required
+@jwt_required()
 def admin_get_users():
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     conn = get_db_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -705,12 +573,11 @@ def admin_get_users():
     return jsonify({"users": users})
 
 @app.route("/admin/users/create", methods=["POST"])
-@admin_required
+@jwt_required()
 def admin_create_user():
-    """
-    Admin endpoint to create new users with specific roles
-    JSON body: { "fullname": "...", "email": "...", "password": "...", "role": "user" or "admin" }
-    """
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     data = request.get_json(force=True)
     fullname = data.get("fullname")
     email = data.get("email")
@@ -719,6 +586,11 @@ def admin_create_user():
 
     if not fullname or not email or not password:
         return jsonify({"error": "fullname, email and password are required"}), 400
+
+    # Validate password
+    is_valid, message = validate_password(password)
+    if not is_valid:
+        return jsonify({"error": message}), 400
 
     # Validate role
     if role not in ["user", "admin"]:
@@ -747,8 +619,11 @@ def admin_create_user():
     }), 201
 
 @app.route("/admin/users/<int:user_id>", methods=["DELETE"])
-@admin_required
+@jwt_required()
 def admin_delete_user(user_id):
+    admin_id = int(get_jwt_identity())
+    if get_user_role(admin_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     conn = get_db_conn()
     cur = conn.cursor()
     
@@ -767,8 +642,11 @@ def admin_delete_user(user_id):
     return jsonify({"message": "User deleted successfully"})
 
 @app.route("/admin/emotions", methods=["GET"])
-@admin_required
+@jwt_required()
 def admin_get_emotions():
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     conn = get_db_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -784,8 +662,11 @@ def admin_get_emotions():
     return jsonify({"emotions": emotions})
 
 @app.route("/admin/emotions/<int:emotion_id>", methods=["DELETE"])
-@admin_required
+@jwt_required()
 def admin_delete_emotion(emotion_id):
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     conn = get_db_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM emotions WHERE id = ?", (emotion_id,))
@@ -798,136 +679,14 @@ def admin_delete_emotion(emotion_id):
     conn.close()
     return jsonify({"message": "Emotion record deleted successfully"})
 
-@app.route("/admin/toggle_mask_logic", methods=["POST"])
-@admin_required
-def toggle_mask_logic():
-    """
-    Admin endpoint to toggle mask detection logic if it's inverted
-    """
-    global INVERT_MASK_PREDICTION
-    INVERT_MASK_PREDICTION = not INVERT_MASK_PREDICTION
-    
-    return jsonify({
-        "message": "Mask detection logic toggled",
-        "invert_mask_prediction": INVERT_MASK_PREDICTION,
-        "current_logic": "< 0.5 = MASK" if INVERT_MASK_PREDICTION else "> 0.5 = MASK"
-    }), 200
 
-@app.route("/debug/mask_detection", methods=["POST"])
-@jwt_required()
-def debug_mask_detection():
-    """
-    Debug endpoint to test mask detection specifically
-    """
-    if "image" not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
-
-    file = request.files["image"]
-    file_path = os.path.join(UPLOAD_FOLDER, f"mask_debug_{file.filename}")
-    file.save(file_path)
-    
-    try:
-        img = cv2.imread(file_path)
-        if img is None:
-            return jsonify({"error": "Could not read image"}), 400
-            
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Try to detect face
-        faces = face_cascade.detectMultiScale(gray, 1.1, 3, minSize=(30, 30))
-        
-        if len(faces) == 0:
-            # Use center region as fallback
-            h, w = img.shape[:2]
-            margin_h, margin_w = int(h * 0.15), int(w * 0.15)
-            face = img[margin_h:h-margin_h, margin_w:w-margin_w]
-            face_method = "fallback_center"
-        else:
-            (x, y, w, h) = faces[0]
-            face = img[y:y+h, x:x+w]
-            face_method = "face_detection"
-        
-        # Test mask prediction
-        mask_face = cv2.resize(face, (128, 128))
-        mask_face = mask_face.astype("float32") / 255.0
-        mask_face = np.expand_dims(mask_face, axis=0)
-        
-        mask_pred = mask_model.predict(mask_face)[0][0]
-        
-        results = {
-            "face_detection_method": face_method,
-            "face_region_size": f"{face.shape[1]}x{face.shape[0]}",
-            "mask_prediction_raw": float(mask_pred),
-            "interpretation_1_lt_05": "MASK" if mask_pred < 0.5 else "NO MASK",
-            "interpretation_2_gt_05": "MASK" if mask_pred > 0.5 else "NO MASK",
-            "current_logic_result": "MASK" if mask_pred > 0.5 else "NO MASK",
-            "confidence": float(abs(mask_pred - 0.5) * 2)  # Distance from 0.5, scaled to 0-1
-        }
-        
-        return jsonify(results), 200
-        
-    except Exception as e:
-        return jsonify({"error": f"Mask debug failed: {str(e)}"}), 500
-
-@app.route("/debug/face_detection", methods=["POST"])
-@jwt_required()
-def debug_face_detection():
-    """
-    Debug endpoint to test face detection without full prediction
-    """
-    if "image" not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
-
-    file = request.files["image"]
-    file_path = os.path.join(UPLOAD_FOLDER, f"debug_{file.filename}")
-    file.save(file_path)
-    
-    try:
-        img = cv2.imread(file_path)
-        if img is None:
-            return jsonify({"error": "Could not read image"}), 400
-            
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Test all face detection strategies
-        results = {}
-        
-        # Strategy 1
-        faces1 = face_cascade.detectMultiScale(gray, 1.3, 5)
-        results["strategy_1_standard"] = len(faces1)
-        
-        # Strategy 2
-        faces2 = face_cascade.detectMultiScale(gray, 1.1, 3, minSize=(30, 30))
-        results["strategy_2_sensitive"] = len(faces2)
-        
-        # Strategy 3
-        faces3 = face_cascade.detectMultiScale(gray, 1.05, 2, minSize=(20, 20))
-        results["strategy_3_lenient"] = len(faces3)
-        
-        # Strategy 4
-        equalized = cv2.equalizeHist(gray)
-        faces4 = face_cascade.detectMultiScale(equalized, 1.2, 4, minSize=(30, 30))
-        results["strategy_4_equalized"] = len(faces4)
-        
-        # Strategy 5
-        faces5 = face_cascade.detectMultiScale(gray, 1.4, 3, minSize=(25, 25), maxSize=(300, 300))
-        results["strategy_5_scaled"] = len(faces5)
-        
-        # Strategy 7
-        faces7 = face_cascade.detectMultiScale(gray, 1.02, 1, minSize=(15, 15), maxSize=(500, 500))
-        results["strategy_7_aggressive"] = len(faces7)
-        
-        results["image_size"] = f"{img.shape[1]}x{img.shape[0]}"
-        results["total_strategies_with_faces"] = sum(1 for count in results.values() if isinstance(count, int) and count > 0)
-        
-        return jsonify(results), 200
-        
-    except Exception as e:
-        return jsonify({"error": f"Debug failed: {str(e)}"}), 500
 
 @app.route("/admin/stats", methods=["GET"])
-@admin_required
+@jwt_required()
 def admin_stats():
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
     conn = get_db_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
