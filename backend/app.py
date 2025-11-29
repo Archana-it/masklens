@@ -183,117 +183,264 @@ try:
     regular_labels = ["Happy", "Sad"]
     masked_labels  = ["Happy", "Sad"]
 
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-    
-    face_cascade_alt = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_alt.xml"
-    )
+    # Load OpenCV DNN face detector
+    print("Loading OpenCV DNN face detector...")
+    DNN_MODEL_PATH = os.path.join(BASE_DIR, "res10_300x300_ssd_iter_140000.caffemodel")
+    DNN_CONFIG_PATH = os.path.join(BASE_DIR, "deploy.prototxt")
+    face_net = cv2.dnn.readNetFromCaffe(DNN_CONFIG_PATH, DNN_MODEL_PATH)
 
-    print("Models and face cascade loaded successfully!")
+    print("Models and DNN face detector loaded successfully!")
     
 except Exception as e:
     print(f"ERROR loading model: {e}")
     mask_model = None
     emotion_regular = None
     emotion_masked = None
+    face_net = None
 
+# def predict_emotion_from_path(image_path):
+#     img = cv2.imread(image_path)
+#     if img is None:
+#         return None, "Image read error", None
+
+#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+#     # Enhanced face detection - multiple strategies
+#     # Note: More conservative to avoid false positives (like detecting paper as face)
+#     faces = []
+    
+#     # Strategy 1: Standard detection (good balance)
+#     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+#     print(f"Strategy 1 (Standard): Found {len(faces)} faces")
+    
+#     # Strategy 2: Moderate sensitivity (for masked faces)
+#     if len(faces) == 0:
+#         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(35, 35))
+#         print(f"Strategy 2 (Moderate): Found {len(faces)} faces")
+    
+#     # Strategy 3: More aggressive (for difficult lighting)
+#     if len(faces) == 0:
+#         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
+#         print(f"Strategy 3 (Aggressive): Found {len(faces)} faces")
+    
+#     # Strategy 4: With histogram equalization (for poor lighting)
+#     if len(faces) == 0:
+#         equalized = cv2.equalizeHist(gray)
+#         faces = face_cascade.detectMultiScale(equalized, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+#         print(f"Strategy 4 (Equalized): Found {len(faces)} faces")
+    
+#     # Strategy 5: Alternative cascade (different detection algorithm)
+#     if len(faces) == 0:
+#         faces = face_cascade_alt.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+#         print(f"Strategy 5 (Alt Cascade): Found {len(faces)} faces")
+    
+#     # Strategy 6: CLAHE enhancement (for contrast issues)
+#     if len(faces) == 0:
+#         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+#         enhanced = clahe.apply(gray)
+#         faces = face_cascade.detectMultiScale(enhanced, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+#         print(f"Strategy 6 (CLAHE): Found {len(faces)} faces")
+
+#     # NO FALLBACK: Return error if no face detected
+#     if len(faces) == 0:
+#         print("❌ NO FACE DETECTED - All detection strategies failed")
+#         print("   Please ensure:")
+#         print("   - Your face is clearly visible")
+#         print("   - Good lighting conditions")
+#         print("   - Face the camera directly")
+#         print("   - Remove any obstructions")
+#         return None, "No face detected. Please ensure your face is clearly visible and well-lit.", None
+    
+#     # Face detected - extract it
+#     print(f"✅ Face detected: {len(faces)} face(s)")
+#     faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+#     (x, y, w, h) = faces[0]
+    
+#     face = img[y:y+h, x:x+w]
+    
+#     if face.size == 0:
+#         print("❌ ERROR: Invalid face region")
+#         return None, "Invalid face region", None
+
+#     # Mask Detection
+#     try:
+#         mask_face = cv2.resize(face, (128, 128))
+#         mask_face = mask_face.astype("float32") / 255.0
+#         mask_face = np.expand_dims(mask_face, axis=0)
+
+#         mask_pred = mask_model.predict(mask_face, verbose=0)[0][0]
+#         print(f"Mask prediction: {mask_pred:.4f}")
+        
+#         # INVERT_MASK_PREDICTION = True: high value = NO MASK, low value = MASK
+#         if INVERT_MASK_PREDICTION:
+#             mask_detected = mask_pred < 0.5
+#         else:
+#             mask_detected = mask_pred > 0.5
+            
+#         if mask_detected:
+#             mask_status = "MASK"
+#             selected_model = emotion_masked
+#             input_size = 128
+#             labels = masked_labels
+#         else:
+#             mask_status = "NO MASK"
+#             selected_model = emotion_regular
+#             input_size = 48
+#             labels = regular_labels
+
+#         print(f"Mask status: {mask_status}")
+
+#         # Emotion Prediction
+#         emo_face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+#         emo_face = cv2.resize(emo_face, (input_size, input_size))
+#         emo_face = emo_face.astype("float32") / 255.0
+#         emo_face = np.expand_dims(emo_face, axis=-1)
+#         emo_face = np.expand_dims(emo_face, axis=0)
+
+#         emotion_pred = selected_model.predict(emo_face, verbose=0)
+#         emotion_idx = np.argmax(emotion_pred[0])
+#         emotion_label = labels[emotion_idx]
+#         confidence = emotion_pred[0][emotion_idx]
+        
+#         print(f"Emotion: {emotion_label} ({confidence:.2f})")
+
+#         # Draw bounding box around detected face (always for visualization)
+#         annotated_image = None
+#         print(f"Drawing bounding box around detected face")
+#         img_copy = img.copy()
+#         # Draw green rectangle around the selected face
+#         cv2.rectangle(img_copy, (x, y), (x+w, y+h), (0, 255, 0), 3)
+        
+#         # Add label based on multiple faces or not
+#         if len(faces) > 1:
+#             label_text = f"Selected Face ({len(faces)} detected)"
+#         else:
+#             label_text = "Detected Face"
+        
+#         cv2.putText(img_copy, label_text, (x, y-10), 
+#                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+#         # Save annotated image
+#         annotated_path = image_path.replace('.', '_annotated.')
+#         cv2.imwrite(annotated_path, img_copy)
+#         annotated_image = annotated_path
+
+#         return {
+#             "mask_status": mask_status,
+#             "emotion": emotion_label,
+#             "confidence": float(confidence),
+#             "faces_detected": len(faces)
+#         }, None, annotated_image
+        
+#     except Exception as e:
+#         print(f"Prediction error: {str(e)}")
+#         return None, f"Prediction error: {str(e)}", None
+
+#face detection changes
 def predict_emotion_from_path(image_path):
-    img = cv2.imread(image_path)
-    if img is None:
-        return None, "Image read error", None
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Enhanced face detection - multiple strategies
-    # Note: More conservative to avoid false positives (like detecting paper as face)
-    faces = []
-    
-    # Strategy 1: Standard detection (good balance)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
-    print(f"Strategy 1 (Standard): Found {len(faces)} faces")
-    
-    # Strategy 2: Moderate sensitivity (for masked faces)
-    if len(faces) == 0:
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(35, 35))
-        print(f"Strategy 2 (Moderate): Found {len(faces)} faces")
-    
-    # Strategy 3: More aggressive (for difficult lighting)
-    if len(faces) == 0:
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
-        print(f"Strategy 3 (Aggressive): Found {len(faces)} faces")
-    
-    # Strategy 4: With histogram equalization (for poor lighting)
-    if len(faces) == 0:
-        equalized = cv2.equalizeHist(gray)
-        faces = face_cascade.detectMultiScale(equalized, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
-        print(f"Strategy 4 (Equalized): Found {len(faces)} faces")
-    
-    # Strategy 5: Alternative cascade (different detection algorithm)
-    if len(faces) == 0:
-        faces = face_cascade_alt.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
-        print(f"Strategy 5 (Alt Cascade): Found {len(faces)} faces")
-    
-    # Strategy 6: CLAHE enhancement (for contrast issues)
-    if len(faces) == 0:
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(gray)
-        faces = face_cascade.detectMultiScale(enhanced, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
-        print(f"Strategy 6 (CLAHE): Found {len(faces)} faces")
-
-    # NO FALLBACK: Return error if no face detected
-    if len(faces) == 0:
-        print("❌ NO FACE DETECTED - All detection strategies failed")
-        print("   Please ensure:")
-        print("   - Your face is clearly visible")
-        print("   - Good lighting conditions")
-        print("   - Face the camera directly")
-        print("   - Remove any obstructions")
-        return None, "No face detected. Please ensure your face is clearly visible and well-lit.", None
-    
-    # Face detected - extract it
-    print(f"✅ Face detected: {len(faces)} face(s)")
-    faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-    (x, y, w, h) = faces[0]
-    
-    face = img[y:y+h, x:x+w]
-    
-    if face.size == 0:
-        print("❌ ERROR: Invalid face region")
-        return None, "Invalid face region", None
-
-    # Mask Detection
+    """
+    Uses OpenCV DNN face detector, then applies your mask_model and emotion models.
+    Returns: (result_dict, error_msg, annotated_image_path)
+    """
     try:
-        mask_face = cv2.resize(face, (128, 128))
+        # Read image in BGR format (OpenCV default)
+        img_bgr = cv2.imread(image_path)
+        if img_bgr is None:
+            return None, "Image read error", None
+
+        h_img, w_img = img_bgr.shape[:2]
+        print(f"Image size: {w_img}x{h_img}")
+
+        # OpenCV DNN face detection
+        blob = cv2.dnn.blobFromImage(
+            img_bgr, 
+            scalefactor=1.0, 
+            size=(300, 300), 
+            mean=(104.0, 177.0, 123.0),
+            swapRB=False,
+            crop=False
+        )
+        
+        face_net.setInput(blob)
+        detections = face_net.forward()
+        
+        print(f"DNN detected {detections.shape[2]} potential faces")
+        
+        # Parse detections and filter by confidence
+        faces_list = []
+        confidence_threshold = 0.5
+        
+        for i in range(detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+            
+            if confidence > confidence_threshold:
+                # Get bounding box coordinates
+                x1 = int(detections[0, 0, i, 3] * w_img)
+                y1 = int(detections[0, 0, i, 4] * h_img)
+                x2 = int(detections[0, 0, i, 5] * w_img)
+                y2 = int(detections[0, 0, i, 6] * h_img)
+                
+                # Clamp to image bounds
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w_img - 1, x2), min(h_img - 1, y2)
+                
+                # Validate bbox
+                if x2 > x1 and y2 > y1:
+                    area = (x2 - x1) * (y2 - y1)
+                    faces_list.append({
+                        "bbox": (x1, y1, x2, y2), 
+                        "area": area, 
+                        "confidence": float(confidence)
+                    })
+                    print(f"  Face {i}: confidence={confidence:.3f}, bbox=({x1},{y1},{x2},{y2})")
+
+        if not faces_list:
+            print("❌ No faces detected with confidence > 0.5")
+            return None, "No face detected. Please ensure your face is visible and well-lit.", None
+
+        # Choose the largest face
+        faces_list = sorted(faces_list, key=lambda x: x["area"], reverse=True)
+        chosen = faces_list[0]
+        x1, y1, x2, y2 = chosen["bbox"]
+        print(f"✅ Selected face with area {chosen['area']} pixels")
+
+        # Extract face region (BGR format)
+        face_bgr = img_bgr[y1:y2, x1:x2]
+        if face_bgr.size == 0:
+            return None, "Invalid face region", None
+
+        # Convert to RGB for mask model
+        face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+
+        # --- Mask detection: RGB image, 128x128, normalized to float32 ---
+        mask_face = cv2.resize(face_rgb, (128, 128))
         mask_face = mask_face.astype("float32") / 255.0
         mask_face = np.expand_dims(mask_face, axis=0)
 
         mask_pred = mask_model.predict(mask_face, verbose=0)[0][0]
         print(f"Mask prediction: {mask_pred:.4f}")
-        
-        # INVERT_MASK_PREDICTION = True: high value = NO MASK, low value = MASK
+
         if INVERT_MASK_PREDICTION:
             mask_detected = mask_pred < 0.5
         else:
             mask_detected = mask_pred > 0.5
-            
+
         if mask_detected:
             mask_status = "MASK"
             selected_model = emotion_masked
-            input_size = 128
+            input_size = 128  # emotion_masked uses grayscale 128x128
             labels = masked_labels
         else:
             mask_status = "NO MASK"
             selected_model = emotion_regular
-            input_size = 48
+            input_size = 48  # emotion_regular uses grayscale 48x48
             labels = regular_labels
 
         print(f"Mask status: {mask_status}")
 
-        # Emotion Prediction
-        emo_face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-        emo_face = cv2.resize(emo_face, (input_size, input_size))
+        # --- Emotion prediction: Grayscale, size depends on mask status, normalized ---
+        face_gray = cv2.cvtColor(face_rgb, cv2.COLOR_RGB2GRAY)
+        emo_face = cv2.resize(face_gray, (input_size, input_size))
         emo_face = emo_face.astype("float32") / 255.0
         emo_face = np.expand_dims(emo_face, axis=-1)
         emo_face = np.expand_dims(emo_face, axis=0)
@@ -301,41 +448,39 @@ def predict_emotion_from_path(image_path):
         emotion_pred = selected_model.predict(emo_face, verbose=0)
         emotion_idx = np.argmax(emotion_pred[0])
         emotion_label = labels[emotion_idx]
-        confidence = emotion_pred[0][emotion_idx]
-        
+        confidence = float(emotion_pred[0][emotion_idx])
+
         print(f"Emotion: {emotion_label} ({confidence:.2f})")
 
-        # Draw bounding box around detected face (always for visualization)
-        annotated_image = None
-        print(f"Drawing bounding box around detected face")
-        img_copy = img.copy()
-        # Draw green rectangle around the selected face
-        cv2.rectangle(img_copy, (x, y), (x+w, y+h), (0, 255, 0), 3)
-        
-        # Add label based on multiple faces or not
-        if len(faces) > 1:
-            label_text = f"Selected Face ({len(faces)} detected)"
-        else:
-            label_text = "Detected Face"
-        
-        cv2.putText(img_copy, label_text, (x, y-10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Save annotated image
-        annotated_path = image_path.replace('.', '_annotated.')
-        cv2.imwrite(annotated_path, img_copy)
-        annotated_image = annotated_path
+        # Annotate image (use BGR for OpenCV drawing)
+        img_copy = img_bgr.copy()
+        cv2.rectangle(img_copy, (x1, y1), (x2, y2), (0, 255, 0), 3)
+        label_text = f"{emotion_label} ({confidence:.2f}) - {mask_status}"
+        cv2.putText(img_copy, label_text, (x1, max(y1-10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
 
-        return {
+        annotated_path = image_path.replace('.', '_annotated.')
+        success = cv2.imwrite(annotated_path, img_copy)
+        if not success:
+            annotated_path = None
+
+        result = {
             "mask_status": mask_status,
             "emotion": emotion_label,
-            "confidence": float(confidence),
-            "faces_detected": len(faces)
-        }, None, annotated_image
-        
+            "confidence": confidence,
+            "faces_detected": len(faces_list)
+        }
+        return result, None, annotated_path
+
     except Exception as e:
         print(f"Prediction error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None, f"Prediction error: {str(e)}", None
+
+    except Exception as outer_e:
+        print(f"Unexpected error in predict_emotion_from_path: {outer_e}")
+        return None, f"Unexpected error: {outer_e}", None
+
 
 # ====== Auth routes ======
 @app.route("/register", methods=["POST"])
