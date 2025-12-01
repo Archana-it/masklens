@@ -190,11 +190,37 @@ const AdminDashboard = () => {
     }
   };
 
+  const [maskInverted, setMaskInverted] = useState(true);
+
+  // Load mask logic state on mount
+  useEffect(() => {
+    const loadMaskLogic = async () => {
+      const token = localStorage.getItem("access_token");
+      if (!token) return;
+      
+      try {
+        const response = await fetch("http://localhost:5000/admin/mask-logic", {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setMaskInverted(data.inverted);
+        }
+      } catch (error) {
+        console.error("Error loading mask logic:", error);
+      }
+    };
+    
+    if (activeTab === "users") {
+      loadMaskLogic();
+    }
+  }, [activeTab]);
+
   const toggleMaskLogic = async () => {
     const token = localStorage.getItem("access_token");
     
     try {
-      const response = await fetch("http://localhost:5000/admin/toggle_mask_logic", {
+      const response = await fetch("http://localhost:5000/admin/mask-logic/toggle", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -203,7 +229,8 @@ const AdminDashboard = () => {
 
       if (response.ok) {
         const data = await response.json();
-        alert(`Mask detection logic toggled!\n\nNew logic: ${data.current_logic}\n\nTry taking a photo with a mask to test.`);
+        setMaskInverted(data.inverted);
+        alert(`Mask detection logic toggled!\n\n${data.message}\n\nCurrent state: ${data.inverted ? 'Inverted (Low=MASK, High=NO MASK)' : 'Normal (High=MASK, Low=NO MASK)'}\n\nTry uploading an image to test.`);
       } else {
         alert("Failed to toggle mask logic");
       }
@@ -442,12 +469,40 @@ const AdminDashboard = () => {
                 <button style={styles.refreshBtn} onClick={fetchUsers}>
                   🔄 Refresh
                 </button>
-                <button 
-                  style={styles.debugBtn} 
+              </div>
+            </div>
+
+            {/* Mask Logic Toggle Section */}
+            <div style={styles.maskLogicSection}>
+              <div style={styles.maskLogicHeader}>
+                <div>
+                  <h3 style={styles.maskLogicTitle}>🎭 Mask Detection Settings</h3>
+                  <p style={styles.maskLogicDescription}>
+                    Toggle this if mask detection is showing opposite results
+                  </p>
+                </div>
+                <button
                   onClick={toggleMaskLogic}
+                  style={{
+                    ...styles.toggleButton,
+                    backgroundColor: maskInverted ? '#4CAF50' : '#ccc'
+                  }}
                 >
-                  🔧 Toggle Mask Logic
+                  <div style={{
+                    ...styles.toggleCircle,
+                    transform: maskInverted ? 'translateX(26px)' : 'translateX(0)'
+                  }}></div>
                 </button>
+              </div>
+              <div style={styles.maskLogicInfo}>
+                <div style={styles.infoBox}>
+                  <strong>Current Mode:</strong> {maskInverted ? 'Inverted' : 'Normal'}
+                </div>
+                <div style={styles.infoBox}>
+                  <strong>Logic:</strong> {maskInverted 
+                    ? 'Low values (< 0.5) = MASK, High values (≥ 0.5) = NO MASK' 
+                    : 'High values (> 0.5) = MASK, Low values (≤ 0.5) = NO MASK'}
+                </div>
               </div>
             </div>
 
@@ -1042,6 +1097,59 @@ const styles = {
     color: "#666",
     fontSize: "0.75rem",
     fontStyle: "italic",
+  },
+  maskLogicSection: {
+    padding: "20px 25px",
+    backgroundColor: "#f8f9fa",
+    borderBottom: "1px solid #e0e0e0",
+  },
+  maskLogicHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "15px",
+  },
+  maskLogicTitle: {
+    margin: "0 0 5px 0",
+    color: "#333",
+    fontSize: "1.1rem",
+    fontWeight: "600",
+  },
+  maskLogicDescription: {
+    margin: 0,
+    color: "#666",
+    fontSize: "0.85rem",
+  },
+  toggleButton: {
+    position: "relative",
+    width: "60px",
+    height: "34px",
+    borderRadius: "34px",
+    border: "none",
+    cursor: "pointer",
+    transition: "background-color 0.3s ease",
+    padding: "4px",
+  },
+  toggleCircle: {
+    width: "26px",
+    height: "26px",
+    borderRadius: "50%",
+    backgroundColor: "white",
+    transition: "transform 0.3s ease",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+  },
+  maskLogicInfo: {
+    display: "flex",
+    gap: "15px",
+    flexWrap: "wrap",
+  },
+  infoBox: {
+    padding: "10px 15px",
+    backgroundColor: "white",
+    borderRadius: "8px",
+    fontSize: "0.85rem",
+    color: "#333",
+    border: "1px solid #e0e0e0",
   },
 };
 

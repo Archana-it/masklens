@@ -508,13 +508,13 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Model Info */}
-                {/* {maskStatus && predictedEmotion && !["Analyzing..."].includes(predictedEmotion) && (
+                {maskStatus && predictedEmotion && !["Analyzing..."].includes(predictedEmotion) && (
                   <div style={styles.modelInfo}>
                     <small style={styles.modelInfoText}>
                       Model used: {maskStatus === "MASK" ? "Masked Emotion Model" : "Regular Emotion Model"}
                     </small>
                   </div>
-                )} */}
+                )}
               </div>
               <img
                 src={annotatedImage || capturedImage}

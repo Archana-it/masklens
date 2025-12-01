@@ -50,6 +50,9 @@ print(f"Upload folder: {UPLOAD_FOLDER}")
 # Based on tested code: mask_pred < 0.5 = MASK, mask_pred >= 0.5 = NO MASK
 INVERT_MASK_PREDICTION = True  # Model outputs high value for NO MASK, low value for MASK
 
+# Store mask inversion state in a global variable (can be toggled via API)
+mask_inversion_state = {"inverted": INVERT_MASK_PREDICTION}
+
 # ====== Password Validation ======
 import re
 
@@ -198,143 +201,6 @@ except Exception as e:
     emotion_masked = None
     face_net = None
 
-# def predict_emotion_from_path(image_path):
-#     img = cv2.imread(image_path)
-#     if img is None:
-#         return None, "Image read error", None
-
-#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-#     # Enhanced face detection - multiple strategies
-#     # Note: More conservative to avoid false positives (like detecting paper as face)
-#     faces = []
-    
-#     # Strategy 1: Standard detection (good balance)
-#     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
-#     print(f"Strategy 1 (Standard): Found {len(faces)} faces")
-    
-#     # Strategy 2: Moderate sensitivity (for masked faces)
-#     if len(faces) == 0:
-#         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(35, 35))
-#         print(f"Strategy 2 (Moderate): Found {len(faces)} faces")
-    
-#     # Strategy 3: More aggressive (for difficult lighting)
-#     if len(faces) == 0:
-#         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
-#         print(f"Strategy 3 (Aggressive): Found {len(faces)} faces")
-    
-#     # Strategy 4: With histogram equalization (for poor lighting)
-#     if len(faces) == 0:
-#         equalized = cv2.equalizeHist(gray)
-#         faces = face_cascade.detectMultiScale(equalized, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
-#         print(f"Strategy 4 (Equalized): Found {len(faces)} faces")
-    
-#     # Strategy 5: Alternative cascade (different detection algorithm)
-#     if len(faces) == 0:
-#         faces = face_cascade_alt.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
-#         print(f"Strategy 5 (Alt Cascade): Found {len(faces)} faces")
-    
-#     # Strategy 6: CLAHE enhancement (for contrast issues)
-#     if len(faces) == 0:
-#         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-#         enhanced = clahe.apply(gray)
-#         faces = face_cascade.detectMultiScale(enhanced, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
-#         print(f"Strategy 6 (CLAHE): Found {len(faces)} faces")
-
-#     # NO FALLBACK: Return error if no face detected
-#     if len(faces) == 0:
-#         print("❌ NO FACE DETECTED - All detection strategies failed")
-#         print("   Please ensure:")
-#         print("   - Your face is clearly visible")
-#         print("   - Good lighting conditions")
-#         print("   - Face the camera directly")
-#         print("   - Remove any obstructions")
-#         return None, "No face detected. Please ensure your face is clearly visible and well-lit.", None
-    
-#     # Face detected - extract it
-#     print(f"✅ Face detected: {len(faces)} face(s)")
-#     faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-#     (x, y, w, h) = faces[0]
-    
-#     face = img[y:y+h, x:x+w]
-    
-#     if face.size == 0:
-#         print("❌ ERROR: Invalid face region")
-#         return None, "Invalid face region", None
-
-#     # Mask Detection
-#     try:
-#         mask_face = cv2.resize(face, (128, 128))
-#         mask_face = mask_face.astype("float32") / 255.0
-#         mask_face = np.expand_dims(mask_face, axis=0)
-
-#         mask_pred = mask_model.predict(mask_face, verbose=0)[0][0]
-#         print(f"Mask prediction: {mask_pred:.4f}")
-        
-#         # INVERT_MASK_PREDICTION = True: high value = NO MASK, low value = MASK
-#         if INVERT_MASK_PREDICTION:
-#             mask_detected = mask_pred < 0.5
-#         else:
-#             mask_detected = mask_pred > 0.5
-            
-#         if mask_detected:
-#             mask_status = "MASK"
-#             selected_model = emotion_masked
-#             input_size = 128
-#             labels = masked_labels
-#         else:
-#             mask_status = "NO MASK"
-#             selected_model = emotion_regular
-#             input_size = 48
-#             labels = regular_labels
-
-#         print(f"Mask status: {mask_status}")
-
-#         # Emotion Prediction
-#         emo_face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-#         emo_face = cv2.resize(emo_face, (input_size, input_size))
-#         emo_face = emo_face.astype("float32") / 255.0
-#         emo_face = np.expand_dims(emo_face, axis=-1)
-#         emo_face = np.expand_dims(emo_face, axis=0)
-
-#         emotion_pred = selected_model.predict(emo_face, verbose=0)
-#         emotion_idx = np.argmax(emotion_pred[0])
-#         emotion_label = labels[emotion_idx]
-#         confidence = emotion_pred[0][emotion_idx]
-        
-#         print(f"Emotion: {emotion_label} ({confidence:.2f})")
-
-#         # Draw bounding box around detected face (always for visualization)
-#         annotated_image = None
-#         print(f"Drawing bounding box around detected face")
-#         img_copy = img.copy()
-#         # Draw green rectangle around the selected face
-#         cv2.rectangle(img_copy, (x, y), (x+w, y+h), (0, 255, 0), 3)
-        
-#         # Add label based on multiple faces or not
-#         if len(faces) > 1:
-#             label_text = f"Selected Face ({len(faces)} detected)"
-#         else:
-#             label_text = "Detected Face"
-        
-#         cv2.putText(img_copy, label_text, (x, y-10), 
-#                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-#         # Save annotated image
-#         annotated_path = image_path.replace('.', '_annotated.')
-#         cv2.imwrite(annotated_path, img_copy)
-#         annotated_image = annotated_path
-
-#         return {
-#             "mask_status": mask_status,
-#             "emotion": emotion_label,
-#             "confidence": float(confidence),
-#             "faces_detected": len(faces)
-#         }, None, annotated_image
-        
-#     except Exception as e:
-#         print(f"Prediction error: {str(e)}")
-#         return None, f"Prediction error: {str(e)}", None
 
 #face detection changes
 def predict_emotion_from_path(image_path):
@@ -420,7 +286,8 @@ def predict_emotion_from_path(image_path):
         mask_pred = mask_model.predict(mask_face, verbose=0)[0][0]
         print(f"Mask prediction: {mask_pred:.4f}")
 
-        if INVERT_MASK_PREDICTION:
+        # Use dynamic mask inversion state
+        if mask_inversion_state["inverted"]:
             mask_detected = mask_pred < 0.5
         else:
             mask_detected = mask_pred > 0.5
@@ -859,6 +726,38 @@ def admin_delete_emotion(emotion_id):
     return jsonify({"message": "Emotion record deleted successfully"})
 
 
+
+@app.route("/admin/mask-logic", methods=["GET"])
+@jwt_required()
+def admin_get_mask_logic():
+    """Get current mask inversion logic state"""
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+    
+    return jsonify({
+        "inverted": mask_inversion_state["inverted"],
+        "description": "If true: mask_pred < 0.5 = MASK, mask_pred >= 0.5 = NO MASK"
+    })
+
+@app.route("/admin/mask-logic/toggle", methods=["POST"])
+@jwt_required()
+def admin_toggle_mask_logic():
+    """Toggle mask inversion logic"""
+    user_id = int(get_jwt_identity())
+    if get_user_role(user_id) != 'admin':
+        return jsonify({"error": "Admin access required"}), 403
+    
+    # Toggle the state
+    mask_inversion_state["inverted"] = not mask_inversion_state["inverted"]
+    
+    print(f"Mask inversion toggled to: {mask_inversion_state['inverted']}")
+    
+    return jsonify({
+        "success": True,
+        "inverted": mask_inversion_state["inverted"],
+        "message": f"Mask logic {'inverted' if mask_inversion_state['inverted'] else 'normal'}"
+    })
 
 @app.route("/admin/stats", methods=["GET"])
 @jwt_required()
